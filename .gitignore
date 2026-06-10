@@ -10,3 +10,6 @@ plantuml/*
 
 #Personal notes and directories
 startup_steps.txt
+
+#Test output logs
+logs/*.logs

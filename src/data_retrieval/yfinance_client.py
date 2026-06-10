@@ -4,6 +4,8 @@ import json
 
 import yfinance as yf
 
+from src.agents.agent_utils import log_api_request
+
 
 def load_ticker(symbol: str) -> yf.Ticker:
     return yf.Ticker(symbol.strip().upper())
@@ -38,6 +40,7 @@ def format_quote_response(quote: dict) -> str:
 
 
 def get_stock_quote(symbol: str) -> str:
+    log_api_request("yahoo/yfinance", "get_stock_quote", {"symbol": symbol})
     ticker = load_ticker(symbol)
     quote = fetch_quote_fields(ticker)
     return format_quote_response(quote)
@@ -82,6 +85,11 @@ def format_history_response(symbol: str, period: str, rows: list[dict]) -> str:
 
 
 def get_stock_history(symbol: str, period: str = "1mo") -> str:
+    log_api_request(
+        "yahoo/yfinance",
+        "get_stock_history",
+        {"symbol": symbol, "period": period},
+    )
     ticker = load_ticker(symbol)
     rows = fetch_history(ticker, period)
     return format_history_response(symbol, period, rows)
