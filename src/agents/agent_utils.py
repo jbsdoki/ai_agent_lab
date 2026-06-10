@@ -177,6 +177,13 @@ def log_subagent_invocation(subagent_name: str, query: str, result: dict) -> Non
     )
 
 
+def log_router_decision(prompt: str, enabled_subagents: set[str]) -> None:
+    """Log which subagents the intent router enabled for a turn."""
+    from src.agents.intent_router import format_router_log_line
+
+    append_session_log(format_router_log_line(prompt, enabled_subagents))
+
+
 ################################################################################
 #*************************** Agent interaction loop ****************************
 ################################################################################
