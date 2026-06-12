@@ -185,6 +185,36 @@ def log_router_decision(prompt: str, enabled_subagents: set[str]) -> None:
 
 
 ################################################################################
+#*************************** Session identity helpers **************************
+################################################################################
+
+def read_username_input() -> str:
+    return input("Enter username: ").strip()
+
+
+def validate_username(username: str) -> str:
+    from src.data_retrieval.database_client import get_user_clearance, normalize_username
+
+    clearance = get_user_clearance(username)
+    normalized = normalize_username(username)
+    print(f"Signed in as {normalized} ({clearance} clearance).")
+    return normalized
+
+
+def prompt_session_username() -> str:
+    """Prompt until the user enters a known username from config/users.json."""
+    while True:
+        username = read_username_input()
+        if not username:
+            print("Username is required.")
+            continue
+        try:
+            return validate_username(username)
+        except ValueError as exc:
+            print(f"{exc} Try again.")
+
+
+################################################################################
 #*************************** Agent interaction loop ****************************
 ################################################################################
 

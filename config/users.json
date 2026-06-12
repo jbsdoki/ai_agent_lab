@@ -1,0 +1,5 @@
+{
+  "alice": { "clearance": "top_secret" },
+  "bob": { "clearance": "secret" },
+  "carol": { "clearance": "standard" }
+}

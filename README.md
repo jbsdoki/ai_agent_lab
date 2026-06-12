@@ -14,16 +14,18 @@ The current implementation is a **multi-agent assistant** that runs entirely on 
 | News | [NewsAPI](https://newsapi.org/) | `news_search`, `news_headlines` |
 | SEC filings | [SEC EDGAR](https://www.sec.gov/edgar/search/) (`data.sec.gov`) | `sec_lookup_cik`, `sec_recent_filings` |
 | Web pages | Allowlisted HTTPS fetch + BeautifulSoup extraction | `fetch_url` |
+| Classified database | Local `database/` files with clearance checks | `list_accessible_files`, `read_classified_file` |
 
-You can run five entry points:
+You can run six entry points:
 
 - **Coordinator agent** — intent router enables relevant specialists each turn; single-intent prompts dispatch directly without a coordinator LLM call
 - **Finance agent** — standalone stock and market data assistant
 - **News agent** — standalone headlines and topic search assistant
 - **SEC agent** — standalone EDGAR filings assistant (10-K, 10-Q, 8-K metadata)
 - **Web agent** — standalone allowlisted page fetch and summarize assistant
+- **Database agent** — standalone classified file assistant with session login and clearance enforcement
 
-Each agent session writes a timestamped log to `logs/` with user prompts, `[ROUTER]` decisions (coordinator), tool calls, API requests, and replies.
+Each agent session writes a timestamped log to `logs/` with user prompts, `[ROUTER]` decisions (coordinator), `[ACCESS]` decisions (database), tool calls, API requests, and replies.
 
 ## Architecture
 
@@ -78,6 +80,7 @@ flowchart TB
 - **NewsAPI key** (free tier) for the news agent and coordinator news scenarios
 - **SEC User-Agent** for the SEC agent — required by [SEC developer policy](https://www.sec.gov/about/developer-resources); use a descriptive value with contact info
 - **Web allowlist** — the web agent only fetches HTTPS URLs on domains listed in `WEB_ALLOWED_DOMAINS`
+- **Classified database users** — copy [`config/users.example.json`](config/users.example.json) to [`config/users.json`](config/users.json) (sample users are already committed for the lab)
 
 Copy `.env.example` to `.env` and set:
 
@@ -118,9 +121,30 @@ python -m src.agents.finance_agent
 python -m src.agents.news_agent
 python -m src.agents.sec_agent
 python -m src.agents.web_agent
+python -m src.agents.database_agent
 ```
 
+### Classified database agent
+
+The database agent prompts for a username once at session start, then passes that identity to the MCP subprocess as `AGENT_USER`. The LLM cannot override identity on tool calls — this is for local experimentation, not production RBAC.
+
+**Clearance model (hierarchical):**
+
+| Clearance | Can read |
+|-----------|----------|
+| `standard` | `database/standard/` |
+| `secret` | `standard/` + `secret/` |
+| `top_secret` | all three folders |
+
+Sample users in [`config/users.json`](config/users.json): `alice` (top_secret), `bob` (secret), `carol` (standard).
+
 Example prompts:
+
+- *"List the classified files I can access."*
+- *"Read standard/public_briefing.txt"*
+- *"Read secret/project_notes.txt"* (denied for `carol`)
+
+Example prompts (other agents):
 
 - Coordinator (finance only): *"What is AAPL trading at?"*
 - Coordinator (news only): *"Latest Apple headlines"*
@@ -139,17 +163,21 @@ Type `quit` or `exit` to end a session. Logs are written to `logs/<session_name>
 ```bash
 # Unit tests (no Ollama)
 python tests/test_intent_router.py
+python tests/test_access_control.py
 
 # MCP server smoke tests
 python tests/test_newsapi_mcp.py
 python tests/test_sec_mcp.py
 python tests/test_web_mcp.py
 
+# Database agent manual review (automated checks; add --live for Ollama)
+python tests/test_database_agent_manual.py
+
 # Coordinator integration test (requires Ollama; news and optional SEC env vars)
 python tests/test_coordinator_delegation.py
 ```
 
-The SEC MCP smoke test and coordinator `sec_only` scenario skip live SEC calls when `SEC_USER_AGENT` is not set.
+The SEC MCP smoke test and coordinator `sec_only` scenario skip live SEC calls when `SEC_USER_AGENT` is not set. The database agent live review requires Ollama (`python tests/test_database_agent_manual.py --live`).
 
 ## Project Layout
 
@@ -157,35 +185,47 @@ The SEC MCP smoke test and coordinator `sec_only` scenario skip live SEC calls w
 AI_agent_lab/
 ├── blueprint.md                 # Learning path, references, and target architecture
 ├── README.md                    # This file
+├── config/
+│   ├── users.json               # Approved users and clearance levels
+│   └── users.example.json       # Template for custom user registry
+├── database/
+│   ├── standard/                # Standard classification files
+│   ├── secret/                  # Secret classification files
+│   └── top_secret/              # Top secret classification files
 ├── .env.example                 # NEWSAPI_API_KEY, SEC_USER_AGENT, WEB_ALLOWED_DOMAINS
 ├── requirements.txt             # Pinned Python dependencies
 ├── logs/                        # Session and test logs (gitignored)
 ├── src/
 │   ├── agents/
-│   │   ├── agent_utils.py       # LLM, logging, interactive loop
+│   │   ├── agent_utils.py       # LLM, logging, interactive loop, session login
 │   │   ├── coordinator_agent.py # Routed multi-agent orchestrator
 │   │   ├── intent_router.py     # Keyword/URL subagent gating
 │   │   ├── finance_agent.py     # Standalone finance agent
 │   │   ├── news_agent.py        # Standalone news agent
 │   │   ├── sec_agent.py         # Standalone SEC filings agent
-│   │   └── web_agent.py         # Standalone allowlisted web fetch agent
+│   │   ├── web_agent.py         # Standalone allowlisted web fetch agent
+│   │   └── database_agent.py    # Standalone classified database agent
 │   ├── data_retrieval/
 │   │   ├── yfinance_client.py   # Stock quote and history fetching
 │   │   ├── newsapi_client.py    # News search and headlines fetching
 │   │   ├── sec_client.py        # EDGAR ticker lookup and recent filings
-│   │   └── web_client.py        # Allowlisted HTTPS fetch and text extraction
+│   │   ├── web_client.py        # Allowlisted HTTPS fetch and text extraction
+│   │   └── database_client.py   # Classified file access and clearance checks
 │   ├── mcp_servers/
 │   │   ├── yfinance_server.py   # MCP server for stock tools
 │   │   ├── newsapi_server.py    # MCP server for news tools
 │   │   ├── sec_server.py        # MCP server for SEC tools
-│   │   └── web_server.py        # MCP server for fetch_url
+│   │   ├── web_server.py        # MCP server for fetch_url
+│   │   └── database_server.py   # MCP server for classified file tools
 │   └── experiments/
 │       └── 01-ollama-chat/      # Early Ollama connectivity check
 └── tests/
     ├── test_intent_router.py           # Router unit tests
+    ├── test_access_control.py          # Database clearance unit tests
     ├── test_newsapi_mcp.py             # NewsAPI MCP smoke test
     ├── test_sec_mcp.py                 # SEC MCP smoke test
     ├── test_web_mcp.py                 # Web MCP smoke test
+    ├── test_database_agent_manual.py   # Database agent manual/live review
     └── test_coordinator_delegation.py  # Routed coordinator integration test
 ```
 

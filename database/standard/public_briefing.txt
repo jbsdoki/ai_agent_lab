@@ -1,0 +1,6 @@
+CLASSIFICATION: STANDARD
+
+Public briefing for all cleared personnel.
+
+This document contains general project status updates suitable for
+standard clearance holders.

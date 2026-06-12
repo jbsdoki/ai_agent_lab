@@ -1,0 +1,170 @@
+NEXT STEPS — interesting goals to try (not a formal plan)
+
+
+Experiment with DeepSeek models
+--------------------------------
+DeepSeek offers strong reasoning and coding models that run locally through Ollama, 
+often with good tool-use behavior at smaller sizes. Pull a model such as `deepseek-r1` or 
+`deepseek-v3` and point your existing agents at it by changing the model name 
+in `src/agents/agent_utils.py` (or adding a CLI/env override). Compare latency, tool-call 
+reliability, and answer quality against `llama3.2` on the same prompts 
+(finance, SEC, classified database). Start with the Ollama model library and DeepSeek’s own 
+docs for context-length and hardware notes.
+
+- Ollama model search: https://ollama.com/search?q=deepseek
+- Ollama API / model tags: https://github.com/ollama/ollama/blob/main/docs/api.md
+- DeepSeek model overview: https://github.com/deepseek-ai
+- LangChain ChatOllama: https://python.langchain.com/docs/integrations/chat/ollama/
+
+
+Test an agentic / LLM router instead of a deterministic one
+------------------------------------------------------------
+Your coordinator already uses a keyword-based router in `src/agents/intent_router.py`. 
+An LLM router would classify intent from natural language 
+(e.g. “summarize Apple’s latest filing and stock price”) and pick 
+subagents dynamically. Try a small structured-output call that 
+returns `{ "subagents": ["finance_subagent", "sec_subagent"] }` before 
+the coordinator runs, and compare misroutes vs the keyword router. 
+Keep the deterministic router as a fallback or safety gate.
+
+- LangChain routing overview: https://python.langchain.com/docs/how_to/routing/
+- Structured output with LangChain: https://python.langchain.com/docs/how_to/structured_output/
+- Semantic router (inspiration): https://github.com/aurelio-labs/semantic-router
+- Your current router: src/agents/intent_router.py
+
+
+Experiment with permission-required access to resources
+-------------------------------------------------------
+You already have clearance levels and session-bound identity (`AGENT_USER`) for 
+classified files. Next, add an explicit “permission grant” step: the agent requests 
+access to a resource, the user (or a policy engine) approves or denies, and only then 
+does the MCP tool read the file. Log grants in the session log. This mirrors 
+human-in-the-loop patterns used in production agents where sensitive tools need confirmation.
+
+- MCP tool design patterns: https://modelcontextprotocol.io/docs/develop/build-server
+- LangGraph human-in-the-loop: https://langchain-ai.github.io/langgraph/how-tos/human_in_the_loop/
+- OAuth 2.0 overview (for future real auth): https://oauth.net/2/
+- Your access-control stack: src/data_retrieval/database_client.py, src/agents/database_agent.py
+
+
+Create a vector database
+------------------------
+Add retrieval-augmented generation (RAG) so agents can search embedded documents 
+instead of only reading whole files. Ingest markdown or text from `database/`, `README.md`, 
+or SEC filing snippets into a local vector store (Chroma or FAISS are easy starts), expose 
+a `search_documents` MCP tool, and wire a small RAG subagent. Useful 
+for “find passages about X” without loading entire files into context.
+
+- LangChain vector stores: https://python.langchain.com/docs/integrations/vectorstores/
+- Chroma getting started: https://docs.trychroma.com/getting-started
+- LlamaIndex basics: https://docs.llamaindex.ai/en/stable/getting_started/
+- LangChain RAG tutorial: https://python.langchain.com/docs/tutorials/rag/
+
+
+OTHER IDEAS WORTH TRYING
+------------------------
+
+Wire the database / files subagent into the coordinator
+Your intent router already reserves `files_subagent`. Register `database_agent` 
+tools in `coordinator_agent.py` so mixed prompts like “AAPL price and 
+read secret/project_notes.txt” route correctly — with clearance still enforced by MCP, not 
+the LLM.
+- Coordinator wiring pattern: src/agents/coordinator_agent.py
+
+Add LangSmith (or local) tracing for tool calls
+See every LLM step, tool invocation, and latency in a trace UI. Helpful when debugging why an agent picked the wrong tool or looped.
+- LangSmith docs: https://docs.smith.langchain.com/
+- LangChain tracing: https://python.langchain.com/docs/how_to/debugging/
+
+Build a local chat UI with Open WebUI or Chainlit
+Run your Ollama-backed agents from a browser instead of the terminal REPL — better for demos and sharing with others on your network.
+- Open WebUI: https://docs.openwebui.com/
+- Chainlit: https://docs.chainlit.io/
+
+Add long-term memory across sessions
+Let an agent remember user preferences or past facts using a memory MCP server or LangGraph checkpoint store, separate from per-turn chat history.
+- MCP memory server: https://github.com/modelcontextprotocol/servers/tree/main/src/memory
+- LangGraph persistence: https://langchain-ai.github.io/langgraph/concepts/persistence/
+
+Multi-agent teams with CrewAI or LangGraph subgraphs
+Specialists debate or hand off tasks in sequence (researcher → writer → critic) instead of one coordinator calling tools.
+- CrewAI: https://docs.crewai.com/
+- LangGraph multi-agent: https://langchain-ai.github.io/langgraph/concepts/multi_agent/
+
+Evaluate agents with a small benchmark suite
+Define 10–20 fixed prompts and assert expected tool names or log patterns (like `test_coordinator_delegation.py`) to catch regressions when you change models or routers.
+- LangChain evaluation: https://python.langchain.com/docs/concepts/evaluation/
+
+Expose agents via a thin FastAPI or MCP-over-HTTP layer
+Move from stdio MCP to HTTP/SSE so other apps (or Cursor Cloud) can call your tools without spawning local subprocesses per client.
+- MCP transports: https://modelcontextprotocol.io/docs/concepts/transports
+- FastAPI: https://fastapi.tiangolo.com/
+
+
+MODEL REFERENCE — cloud vs local, cost, APIs, laptop feasibility
+-----------------------------------------------------------------
+Quick guide for models worth trying in this lab. Your default today is `llama3.2:latest`
+via local Ollama (`ChatOllama` → `http://localhost:11434` in `src/agents/agent_utils.py`).
+None of the flagship cloud models below are “free forever” at scale via API; several offer
+limited trial credits or chat-only free tiers. Prices are approximate USD per 1M tokens
+(input / output) and change — verify on the provider site before budgeting.
+
+Current default — Llama 3.2 (local)
+- Type: General chat / tool-use (Meta, ~3B class via Ollama tag `llama3.2:latest`)
+- Cost: Free (Ollama + your hardware; electricity only)
+- API: Local Ollama at http://localhost:11434 (no cloud key)
+- Laptop realistic? Yes — designed for consumer laptops; good baseline for this repo
+
+DeepSeek R1 / V3 (local via Ollama)
+- Type: Reasoning (R1) and general/coding (V3); distilled sizes exist for local use
+- Cost: Free locally; cloud via DeepSeek API or Ollama `:cloud` tags (paid after quotas)
+- API (cloud): DeepSeek — https://platform.deepseek.com (OpenAI-compatible, `https://api.deepseek.com`)
+- Laptop realistic? Small/distilled variants (e.g. 7B–14B) yes on 16GB RAM; full V3/R1 sizes need
+  32GB+ RAM or GPU VRAM; expect slower turns than llama3.2 on CPU-only laptops
+
+DeepSeek V4-Flash / V4-Pro (cloud-first; Ollama cloud tags)
+- Type: Agent/coding flagship (Flash = fast/cheap; Pro = higher quality)
+- Cost: API paid — Flash ~$0.14 / $0.28 per 1M tokens; Pro ~$0.435 / $0.87. New DeepSeek accounts
+  often get ~5M free trial tokens (~30 days). Ollama Cloud: free tier with light GPU-time caps;
+  Pro subscription $20/mo — https://ollama.com/pricing
+- API: DeepSeek — https://platform.deepseek.com; Ollama cloud — `deepseek-v4-flash:cloud`, `deepseek-v4-pro:cloud`
+- Laptop realistic? No as full local weights — use API or Ollama Cloud instead
+
+Kimi K2.6 (Moonshot AI)
+- Type: Multimodal agent model (long context, tool use)
+- Cost: Kimi.com chat/app free for humans; API is paid (~$0.95 input / $4.00 output per 1M tokens;
+  cached input ~$0.16). API accounts typically require a small prepaid balance (~$1 minimum)
+- API: Moonshot / Kimi — https://platform.moonshot.ai (OpenAI-compatible, e.g. `api.moonshot.ai`)
+- Laptop realistic? No — trillion-parameter MoE class; use API or a reseller (Fireworks, Together, etc.)
+
+Qwen 3.6 Plus (cloud) vs Qwen 3.6 27B (local Ollama)
+- Type: General + coding (`qwen3.6-plus` hosted; `qwen3.6:27b` or similar for local Ollama)
+- Cost: Cloud — new Model Studio users (often Singapore region) get ~1M free tokens per model
+  (~90 days); paid tiered ~$0.30–$1.20 input / $1.80–$7.20 output by context length. Local pull is free
+- API: Alibaba Cloud Model Studio (DashScope) — https://www.alibabacloud.com/help/en/model-studio/
+  OpenAI-compatible endpoint (region-specific, e.g. dashscope.aliyuncs.com)
+- Laptop realistic? Local `qwen3.6:27b` — yes on a strong laptop (32GB RAM recommended; GPU helps a lot);
+  CPU-only 16GB will struggle. Cloud `qwen3.6-plus` — no local hardware needed
+
+GLM 5.1 (Z.ai / Zhipu)
+- Type: Agent/coding flagship
+- Cost: API paid — ~$1.40 input / $4.40 output per 1M tokens (cache hits cheaper). Smaller
+  `glm-4.7-flash` is free on Z.ai API for light use; GLM Coding Plan subscription from ~$10/mo
+  is separate from raw per-token billing. Ollama Cloud tag `glm-5.1:cloud` uses Ollama subscription quotas
+- API: Z.ai — https://z.ai (`https://api.z.ai/api/paas/v4/`, model id `glm-5.1`)
+- Laptop realistic? No as full GLM-5.1 weights — use Z.ai API, Ollama Cloud, or free `glm-4.7-flash` for experiments
+
+How to use cloud models in this repo (without changing architecture much)
+- Direct vendor API: swap `ChatOllama` for LangChain `ChatOpenAI` (or compatible) with vendor base URL + API key env vars
+- Ollama Cloud: keep `ChatOllama` but pull/run `:cloud` model tags; sign in to Ollama for cloud access
+- Stay local: change `MODEL` in `src/agents/agent_utils.py` or add a CLI/env override — best laptop picks:
+  `llama3.2:latest`, smaller DeepSeek distillations, `qwen3.6:27b` if you have 32GB RAM
+
+Rough cost ranking for a typical agent turn (API, output-heavy): DeepSeek V4 Flash ≪ Qwen 3.6 Plus ≈ Kimi K2.6 ≲ GLM 5.1
+
+- DeepSeek pricing: https://api-docs.deepseek.com/quick_start/pricing
+- Moonshot / Kimi pricing: https://platform.kimi.ai/docs/pricing/chat-k26
+- Alibaba Model Studio pricing: https://www.alibabacloud.com/help/en/model-studio/model-pricing
+- Z.ai pricing: https://docs.z.ai/guides/overview/pricing
+- Ollama Cloud pricing: https://ollama.com/pricing
+- Ollama local library: https://ollama.com/library
