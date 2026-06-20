@@ -10,6 +10,9 @@ plantuml/*
 
 #Personal notes and directories
 startup_steps.txt
+next_steps.txt
+blueprint.md
 
 #Test output logs
 logs/*.logs
+logs/*.grants.json

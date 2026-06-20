@@ -14,14 +14,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.agents.agent_utils import SESSION_LOG_PATH_ENV
 from src.data_retrieval.database_client import (
+    GRANT_STORE_PATH_ENV,
     SESSION_USER_ENV,
     clearance_allows,
     get_user_clearance,
     list_accessible_files,
     parse_relative_path,
     read_classified_file,
+    record_grant,
     reject_unsafe_path,
+    requires_permission_grant,
 )
 
 LOGS_DIR = PROJECT_ROOT / "logs"
@@ -32,19 +36,39 @@ TOP_SECRET_FILE = "top_secret/classified_plan.txt"
 
 
 @contextmanager
-def session_user(username: str | None):
-    previous = os.environ.get(SESSION_USER_ENV)
+def session_user(username: str | None, grant_store: Path | None = None):
+    previous_user = os.environ.get(SESSION_USER_ENV)
+    previous_grant = os.environ.get(GRANT_STORE_PATH_ENV)
+    previous_log = os.environ.get(SESSION_LOG_PATH_ENV)
     if username is None:
         os.environ.pop(SESSION_USER_ENV, None)
     else:
         os.environ[SESSION_USER_ENV] = username
+    if grant_store is not None:
+        grant_store.parent.mkdir(parents=True, exist_ok=True)
+        grant_store.write_text("{}", encoding="utf-8")
+        os.environ[GRANT_STORE_PATH_ENV] = str(grant_store)
+        os.environ[SESSION_LOG_PATH_ENV] = str(grant_store.with_suffix(".logs"))
     try:
         yield
     finally:
-        if previous is None:
+        if previous_user is None:
             os.environ.pop(SESSION_USER_ENV, None)
         else:
-            os.environ[SESSION_USER_ENV] = previous
+            os.environ[SESSION_USER_ENV] = previous_user
+        if previous_grant is None:
+            os.environ.pop(GRANT_STORE_PATH_ENV, None)
+        else:
+            os.environ[GRANT_STORE_PATH_ENV] = previous_grant
+        if previous_log is None:
+            os.environ.pop(SESSION_LOG_PATH_ENV, None)
+        else:
+            os.environ[SESSION_LOG_PATH_ENV] = previous_log
+
+
+def build_grant_store(name: str) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return LOGS_DIR / f"{name}_{timestamp}.grants.json"
 
 
 def parse_response(response_text: str) -> dict:
@@ -65,10 +89,28 @@ def assert_denied(response_text: str, expected_path: str, expected_clearance: st
     assert payload["user_clearance"] == expected_clearance
 
 
+def assert_approval_required(response_text: str, expected_path: str) -> None:
+    payload = parse_response(response_text)
+    assert payload["status"] == "approval_required", payload
+    assert payload["path"] == expected_path
+
+
+def assert_grant_denied(response_text: str, expected_path: str) -> None:
+    payload = parse_response(response_text)
+    assert payload["error"] == "Access denied by operator."
+    assert payload["path"] == expected_path
+
+
 def assert_error(response_text: str, expected_fragment: str) -> None:
     payload = parse_response(response_text)
     assert "error" in payload
     assert expected_fragment in payload["error"]
+
+
+def test_requires_permission_grant() -> None:
+    assert not requires_permission_grant("standard")
+    assert requires_permission_grant("secret")
+    assert requires_permission_grant("top_secret")
 
 
 def test_clearance_hierarchy() -> None:
@@ -106,9 +148,24 @@ def test_carol_denied_top_secret() -> None:
         )
 
 
-def test_bob_reads_secret() -> None:
-    with session_user("bob"):
+def test_bob_needs_grant_for_secret() -> None:
+    grant_store = build_grant_store("test_bob_secret")
+    with session_user("bob", grant_store):
+        assert_approval_required(read_classified_file(SECRET_FILE), SECRET_FILE)
+
+
+def test_bob_reads_secret_after_grant() -> None:
+    grant_store = build_grant_store("test_bob_secret_grant")
+    with session_user("bob", grant_store):
+        record_grant("bob", SECRET_FILE, granted=True, source="test")
         assert_allowed(read_classified_file(SECRET_FILE), SECRET_FILE)
+
+
+def test_bob_denied_secret_after_grant_refused() -> None:
+    grant_store = build_grant_store("test_bob_secret_denied")
+    with session_user("bob", grant_store):
+        record_grant("bob", SECRET_FILE, granted=False, source="test")
+        assert_grant_denied(read_classified_file(SECRET_FILE), SECRET_FILE)
 
 
 def test_bob_denied_top_secret() -> None:
@@ -120,9 +177,26 @@ def test_bob_denied_top_secret() -> None:
         )
 
 
-def test_alice_reads_all_classifications() -> None:
-    with session_user("alice"):
+def test_alice_reads_standard_without_grant() -> None:
+    grant_store = build_grant_store("test_alice_standard")
+    with session_user("alice", grant_store):
         assert_allowed(read_classified_file(STANDARD_FILE), STANDARD_FILE)
+
+
+def test_alice_needs_grant_for_secret_and_top_secret() -> None:
+    grant_store = build_grant_store("test_alice_grants")
+    with session_user("alice", grant_store):
+        assert_approval_required(read_classified_file(SECRET_FILE), SECRET_FILE)
+        assert_approval_required(
+            read_classified_file(TOP_SECRET_FILE), TOP_SECRET_FILE
+        )
+
+
+def test_alice_reads_sensitive_files_after_grant() -> None:
+    grant_store = build_grant_store("test_alice_sensitive")
+    with session_user("alice", grant_store):
+        record_grant("alice", SECRET_FILE, granted=True, source="test")
+        record_grant("alice", TOP_SECRET_FILE, granted=True, source="test")
         assert_allowed(read_classified_file(SECRET_FILE), SECRET_FILE)
         assert_allowed(read_classified_file(TOP_SECRET_FILE), TOP_SECRET_FILE)
 
@@ -194,14 +268,19 @@ def write_log_file(log_path: Path, lines: list[str]) -> None:
 
 def run_all_tests() -> tuple[list[str], list[str]]:
     tests = [
+        test_requires_permission_grant,
         test_clearance_hierarchy,
         test_get_user_clearance,
         test_carol_reads_standard,
         test_carol_denied_secret,
         test_carol_denied_top_secret,
-        test_bob_reads_secret,
+        test_bob_needs_grant_for_secret,
+        test_bob_reads_secret_after_grant,
+        test_bob_denied_secret_after_grant_refused,
         test_bob_denied_top_secret,
-        test_alice_reads_all_classifications,
+        test_alice_reads_standard_without_grant,
+        test_alice_needs_grant_for_secret_and_top_secret,
+        test_alice_reads_sensitive_files_after_grant,
         test_missing_agent_user,
         test_unknown_user,
         test_path_traversal_rejected,

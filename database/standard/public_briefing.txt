@@ -2,5 +2,12 @@ CLASSIFICATION: STANDARD
 
 Public briefing for all cleared personnel.
 
+KEYWORD: ORION-BRIEF
+DOC-ID: STD-7741
+BUDGET-CODE: 1200450
+STATUS-CODE: GREEN-42
+HEADCOUNT: 148
+
 This document contains general project status updates suitable for
-standard clearance holders.
+standard clearance holders. Phase Orion remains on schedule with a
+milestone target of 2026-09-30.

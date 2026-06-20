@@ -18,7 +18,7 @@ def list_accessible_files() -> str:
 
 @mcp.tool()
 def read_classified_file(relative_path: str) -> str:
-    """Read a classified database file after clearance checks."""
+    """Read a classified database file after clearance and operator grant checks."""
     return read_classified_database_file(relative_path)
 
 

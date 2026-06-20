@@ -5,6 +5,7 @@ interactive chat loop used by finance_agent, news_agent, and coordinator_agent.
 """
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,7 @@ MODEL = "llama3.2:latest"
 
 # Points at the current session log file so any code can append to one log.
 _active_session_log: Path | None = None
+SESSION_LOG_PATH_ENV = "SESSION_LOG_PATH"
 
 
 def get_project_root() -> Path:
@@ -59,12 +61,21 @@ def get_active_session_log() -> Path | None:
     return _active_session_log
 
 
+def resolve_session_log_path() -> Path | None:
+    """Return the log file path from env (MCP subprocess) or the active session."""
+    env_path = os.getenv(SESSION_LOG_PATH_ENV, "").strip()
+    if env_path:
+        return Path(env_path)
+    return _active_session_log
+
+
 def append_session_log(line: str) -> None:
     """Append one line to the active session log. No-op if no session is active."""
-    if _active_session_log is None:
+    log_path = resolve_session_log_path()
+    if log_path is None:
         return
-    _active_session_log.parent.mkdir(parents=True, exist_ok=True)
-    with _active_session_log.open("a", encoding="utf-8") as log_file:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log_file:
         log_file.write(line + "\n")
 
 
@@ -72,6 +83,7 @@ def start_session_log(session_name: str) -> Path:
     """Create a new log file, mark it active, and write the session header."""
     log_path = create_session_log_path(session_name)
     set_active_session_log(log_path)
+    os.environ[SESSION_LOG_PATH_ENV] = str(log_path)
     append_session_log(f"=== SESSION START: {session_name} ===")
     append_session_log(f"Timestamp (UTC): {utc_timestamp()}")
     return log_path

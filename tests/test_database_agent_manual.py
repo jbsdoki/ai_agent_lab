@@ -23,8 +23,13 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.agents.agent_utils import SESSION_LOG_PATH_ENV
 from src.agents.database_agent import build_database_mcp_config
-from src.data_retrieval.database_client import SESSION_USER_ENV
+from src.data_retrieval.database_client import (
+    GRANT_STORE_PATH_ENV,
+    SESSION_USER_ENV,
+    create_grant_store_path,
+)
 
 LOGS_DIR = PROJECT_ROOT / "logs"
 
@@ -47,12 +52,9 @@ MANUAL_SCENARIOS = [
             "List all classified files I can access.",
             "Read top_secret/classified_plan.txt",
         ],
-        "expect_access_allowed": [
-            "standard/public_briefing.txt",
-            "secret/project_notes.txt",
-            "top_secret/classified_plan.txt",
-        ],
+        "expect_access_allowed": ["top_secret/classified_plan.txt"],
         "expect_access_denied": [],
+        "expect_grants": ["top_secret/classified_plan.txt"],
     },
 ]
 
@@ -61,9 +63,15 @@ def get_project_root() -> Path:
     return PROJECT_ROOT
 
 
-def test_mcp_config_sets_agent_user_env() -> None:
-    config = build_database_mcp_config(get_project_root(), sys.executable, "carol")
+def test_mcp_config_sets_session_env() -> None:
+    log_path = LOGS_DIR / "test_database_mcp_session.logs"
+    grant_path = LOGS_DIR / "test_database_mcp_session.grants.json"
+    config = build_database_mcp_config(
+        get_project_root(), sys.executable, "carol", log_path, grant_path
+    )
     assert config["env"][SESSION_USER_ENV] == "carol"
+    assert config["env"][SESSION_LOG_PATH_ENV] == str(log_path)
+    assert config["env"][GRANT_STORE_PATH_ENV] == str(grant_path)
 
 
 def test_prompt_session_username_accepts_known_user() -> None:
@@ -85,8 +93,17 @@ def access_line_allows_path(line: str, path: str, allowed: bool) -> bool:
     )
 
 
+def find_grant_lines(log_text: str) -> list[str]:
+    return [line for line in log_text.splitlines() if line.startswith("[GRANT]")]
+
+
+def grant_line_matches(line: str, path: str, granted: bool) -> bool:
+    return f"resource={path!r}" in line and f"granted={granted}" in line
+
+
 def evaluate_manual_log(log_text: str, scenario: dict) -> dict:
     access_lines = find_access_lines(log_text)
+    grant_lines = find_grant_lines(log_text)
     checks = {
         "has_access_logs": bool(access_lines),
         "allowed_reads": all(
@@ -103,7 +120,13 @@ def evaluate_manual_log(log_text: str, scenario: dict) -> dict:
             )
             for path in scenario["expect_access_denied"]
         ),
+        "grant_logs": all(
+            any(grant_line_matches(line, path, True) for line in grant_lines)
+            for path in scenario.get("expect_grants", [])
+        ),
     }
+    if not scenario.get("expect_grants"):
+        checks["grant_logs"] = True
     return {
         "user": scenario["user"],
         "checks": checks,
@@ -134,7 +157,7 @@ def format_manual_checklist() -> str:
             f"    Expect denied reads: {scenario['expect_access_denied']}"
         )
         lines.append("")
-    lines.append("Verify logs/database_agent_*.logs contains [ACCESS] lines.")
+    lines.append("Verify logs/database_agent_*.logs contains [ACCESS] and [GRANT] lines.")
     return "\n".join(lines)
 
 
@@ -150,7 +173,7 @@ def write_log_file(log_path: Path, content: str) -> None:
 
 def run_automated_tests() -> tuple[list[str], list[str]]:
     tests = [
-        test_mcp_config_sets_agent_user_env,
+        test_mcp_config_sets_session_env,
         test_prompt_session_username_accepts_known_user,
     ]
     passed: list[str] = []
@@ -166,22 +189,39 @@ def run_automated_tests() -> tuple[list[str], list[str]]:
 
 
 async def run_live_scenario(scenario: dict) -> dict:
+    import os
+
     from src.agents.agent_utils import (
         append_session_log,
         get_active_session_log,
-        run_prompt,
         start_session_log,
     )
-    from src.agents.database_agent import build_database_agent
+    from src.agents.database_agent import build_database_agent, run_prompt_with_approvals
 
     session_name = f"test_database_agent_{scenario['user']}"
-    start_session_log(session_name)
+    log_path = start_session_log(session_name)
+    grant_store_path = create_grant_store_path(log_path)
+    grant_store_path.write_text("{}", encoding="utf-8")
+    os.environ[GRANT_STORE_PATH_ENV] = str(grant_store_path)
     append_session_log(f"=== MANUAL SCENARIO: {scenario['user']} ===")
 
-    agent = await build_database_agent(get_project_root(), scenario["user"])
-    for prompt in scenario["prompts"]:
-        append_session_log(f"=== PROMPT: {prompt!r} ===")
-        await run_prompt(agent, prompt, log_label="DATABASE_AGENT")
+    agent = await build_database_agent(
+        get_project_root(),
+        scenario["user"],
+        log_path,
+        grant_store_path,
+    )
+    approval_count = len(scenario.get("expect_grants", []))
+    approval_inputs = ["y"] * max(approval_count, 1)
+    with patch("builtins.input", side_effect=approval_inputs):
+        for prompt in scenario["prompts"]:
+            append_session_log(f"=== PROMPT: {prompt!r} ===")
+            await run_prompt_with_approvals(
+                agent,
+                prompt,
+                scenario["user"],
+                log_label="DATABASE_AGENT",
+            )
 
     session_log = get_active_session_log()
     log_text = session_log.read_text(encoding="utf-8") if session_log else ""

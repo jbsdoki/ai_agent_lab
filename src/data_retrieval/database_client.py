@@ -2,6 +2,7 @@
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.agents.agent_utils import append_session_log, get_project_root
@@ -13,6 +14,8 @@ CLEARANCE_RANK = {
     "top_secret": 2,
 }
 SESSION_USER_ENV = "AGENT_USER"
+GRANT_STORE_PATH_ENV = "GRANT_STORE_PATH"
+PERMISSION_GRANT_CLASSIFICATIONS = frozenset({"secret", "top_secret"})
 USERS_CONFIG_PATH = get_project_root() / "config" / "users.json"
 DATABASE_ROOT = get_project_root() / "database"
 
@@ -118,6 +121,116 @@ def log_access_attempt(
     )
 
 
+def log_permission_grant(
+    username: str,
+    resource: str,
+    granted: bool,
+    source: str,
+) -> None:
+    append_session_log(
+        f"[GRANT] user={username} resource={resource!r} granted={granted} "
+        f"source={source}"
+    )
+
+
+def requires_permission_grant(classification: str) -> bool:
+    return classification in PERMISSION_GRANT_CLASSIFICATIONS
+
+
+def create_grant_store_path(session_log_path: Path) -> Path:
+    return session_log_path.with_name(f"{session_log_path.stem}.grants.json")
+
+
+def get_grant_store_path() -> Path | None:
+    path_value = os.getenv(GRANT_STORE_PATH_ENV, "").strip()
+    if not path_value:
+        return None
+    return Path(path_value)
+
+
+def grant_store_key(username: str, resource: str) -> str:
+    return f"{normalize_username(username)}:{resource}"
+
+
+def load_grant_store() -> dict:
+    store_path = get_grant_store_path()
+    if store_path is None or not store_path.exists():
+        return {}
+    payload = json.loads(store_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Grant store must be a JSON object.")
+    return payload
+
+
+def save_grant_store(grants: dict) -> None:
+    store_path = get_grant_store_path()
+    if store_path is None:
+        return
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(json.dumps(grants, indent=2), encoding="utf-8")
+
+
+def get_grant(username: str, resource: str) -> bool | None:
+    grants = load_grant_store()
+    entry = grants.get(grant_store_key(username, resource))
+    if entry is None:
+        return None
+    return bool(entry.get("granted"))
+
+
+def record_grant(
+    username: str,
+    resource: str,
+    granted: bool,
+    source: str = "human",
+) -> None:
+    normalized = normalize_username(username)
+    normalized_path = normalize_relative_path(resource)
+    grants = load_grant_store()
+    grants[grant_store_key(normalized, normalized_path)] = {
+        "user": normalized,
+        "resource": normalized_path,
+        "granted": granted,
+        "source": source,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    save_grant_store(grants)
+    log_permission_grant(normalized, normalized_path, granted, source)
+
+
+def format_approval_required(
+    username: str,
+    resource_path: str,
+    classification: str,
+) -> str:
+    return json.dumps(
+        {
+            "status": "approval_required",
+            "user": username,
+            "path": resource_path,
+            "classification": classification,
+            "message": (
+                "User approval is required before reading this file. "
+                "Wait for the operator to approve or deny access."
+            ),
+        },
+        indent=2,
+    )
+
+
+def format_grant_denied(username: str, resource_path: str, classification: str) -> str:
+    return json.dumps(
+        {
+            "error": "Access denied by operator.",
+            "user": username,
+            "path": resource_path,
+            "resource_classification": classification,
+            "hint": "The operator denied permission to read this file.",
+        },
+        indent=2,
+    )
+
+
 def format_error(message: str, hint: str | None = None) -> str:
     payload: dict = {"error": message}
     if hint:
@@ -200,12 +313,27 @@ def read_classified_file(relative_path: str) -> str:
         return format_error(str(exc))
 
     allowed = clearance_allows(clearance, classification)
-    log_access_attempt(username, "read_classified_file", normalized, allowed)
     if not allowed:
+        log_access_attempt(username, "read_classified_file", normalized, allowed=False)
         return format_access_denied(username, normalized, classification, clearance)
 
+    if requires_permission_grant(classification):
+        grant = get_grant(username, normalized)
+        if grant is None:
+            log_access_attempt(
+                username, "read_classified_file", normalized, allowed=False
+            )
+            return format_approval_required(username, normalized, classification)
+        if not grant:
+            log_access_attempt(
+                username, "read_classified_file", normalized, allowed=False
+            )
+            return format_grant_denied(username, normalized, classification)
+
     if not resolved.is_file():
+        log_access_attempt(username, "read_classified_file", normalized, allowed=False)
         return format_error(f"File not found: '{normalized}'.")
 
     content = resolved.read_text(encoding="utf-8")
+    log_access_attempt(username, "read_classified_file", normalized, allowed=True)
     return format_file_content(normalized, classification, content)

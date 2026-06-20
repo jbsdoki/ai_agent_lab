@@ -2,5 +2,12 @@ CLASSIFICATION: TOP SECRET
 
 Strategic plan for top secret clearance holders only.
 
+KEYWORD: BLACKLANTERN-PLAN
+DOC-ID: TS-0017
+OPS-CODE: DELTA-9001
+LAUNCH-WINDOW: 2026-11-14
+ASSET-COUNT: 12
+
 Contains sensitive operational details that must not be shared with
-secret or standard users.
+secret or standard users. Operation Black Lantern deploys 12 assets
+under OPS-CODE DELTA-9001 during launch window 2026-11-14.
