@@ -33,20 +33,6 @@ Keep the deterministic router as a fallback or safety gate.
 - Your current router: src/agents/intent_router.py
 
 
-Experiment with permission-required access to resources
--------------------------------------------------------
-You already have clearance levels and session-bound identity (`AGENT_USER`) for 
-classified files. Next, add an explicit “permission grant” step: the agent requests 
-access to a resource, the user (or a policy engine) approves or denies, and only then 
-does the MCP tool read the file. Log grants in the session log. This mirrors 
-human-in-the-loop patterns used in production agents where sensitive tools need confirmation.
-
-- MCP tool design patterns: https://modelcontextprotocol.io/docs/develop/build-server
-- LangGraph human-in-the-loop: https://langchain-ai.github.io/langgraph/how-tos/human_in_the_loop/
-- OAuth 2.0 overview (for future real auth): https://oauth.net/2/
-- Your access-control stack: src/data_retrieval/database_client.py, src/agents/database_agent.py
-
-
 Create a vector database
 ------------------------
 Add retrieval-augmented generation (RAG) so agents can search embedded documents 
@@ -80,11 +66,6 @@ Build a local chat UI with Open WebUI or Chainlit
 Run your Ollama-backed agents from a browser instead of the terminal REPL — better for demos and sharing with others on your network.
 - Open WebUI: https://docs.openwebui.com/
 - Chainlit: https://docs.chainlit.io/
-
-Add long-term memory across sessions
-Let an agent remember user preferences or past facts using a memory MCP server or LangGraph checkpoint store, separate from per-turn chat history.
-- MCP memory server: https://github.com/modelcontextprotocol/servers/tree/main/src/memory
-- LangGraph persistence: https://langchain-ai.github.io/langgraph/concepts/persistence/
 
 Multi-agent teams with CrewAI or LangGraph subgraphs
 Specialists debate or hand off tasks in sequence (researcher → writer → critic) instead of one coordinator calling tools.

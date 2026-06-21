@@ -1,0 +1,148 @@
+AI Agent Lab — Startup Guide
+=============================
+
+Overview
+--------
+Ollama runs inside WSL (Ubuntu). Python scripts and PowerShell on Windows talk to it
+at http://localhost:11434. WSL must be running and Ollama must be active before you
+run any project scripts.
+
+
+One-time setup (skip if already done)
+-------------------------------------
+1. Confirm WSL distros:
+   PS> wsl --list --verbose
+
+   You should see Ubuntu. If it shows "Stopped", that is normal when idle.
+
+2. Pull the model once inside Ubuntu:
+   PS> wsl -d Ubuntu -u jberry
+   $ ollama pull llama3.2
+   $ exit
+
+3. Activate the Python environment from PowerShell:
+   PS> conda activate ai_agent_lab
+   PS> cd C:\Users\Jberr\_Projects\AI_agent_lab
+   PS> pip install -r requirements.txt
+
+
+Every session — Step 1: Start WSL
+---------------------------------
+Open PowerShell and launch your Ubuntu distro:
+
+   PS> wsl -d Ubuntu -u jberry
+
+You should land at a Linux prompt like:
+   jberry@...:/mnt/c/Users/Jberr/...$
+
+Tip: If you get "execvpe ... failed", try:
+   PS> wsl -d Ubuntu
+
+To set Ubuntu as the default distro (optional):
+   PS> wsl --set-default Ubuntu
+
+
+Every session — Step 2: Start Ollama in WSL
+---------------------------------------------
+Option A — Quick start (recommended while learning)
+   Run this inside the Ubuntu shell:
+
+   $ ollama serve
+
+   Leave this terminal open. Ollama stops when you close it or run exit.
+
+Option B — Interactive test (also starts the server if needed)
+   $ ollama run llama3.2
+
+   Chat in the terminal. Press /bye to exit the chat session.
+   The server may keep running after you leave the chat.
+
+Option C — Background service (best long-term, if systemd is enabled in WSL)
+   $ sudo systemctl start ollama
+   $ sudo systemctl enable ollama    # optional: start on boot
+
+   With this option you can exit WSL and Ollama keeps running until WSL shuts down.
+
+
+Every session — Step 3: Verify Ollama is reachable
+--------------------------------------------------
+From the same Ubuntu shell:
+
+   $ ollama list
+   $ curl http://localhost:11434/api/tags
+
+You should see llama3.2 (or llama3.2:latest) in the model list and JSON from /api/tags.
+
+Open a second PowerShell window (keep WSL/Ollama running) and test from Windows:
+
+   PS> curl.exe http://localhost:11434/api/tags
+
+If this returns JSON, Windows can reach your WSL Ollama instance.
+If it fails, go to Troubleshooting below before running Python.
+
+
+Every session — Step 4: Call Ollama from PowerShell
+----------------------------------------------------
+Simple chat request (same API the Python scripts use):
+
+   PS> curl.exe -X POST http://localhost:11434/api/chat ^
+       -H "Content-Type: application/json" ^
+       -d "{\"model\":\"llama3.2:latest\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}],\"stream\":false}"
+
+Note: Use curl.exe in PowerShell. Plain "curl" is an alias for Invoke-WebRequest.
+
+
+Every session — Step 5: Call Ollama from Python
+------------------------------------------------
+From the project root with ai_agent_lab activated:
+
+   PS> conda activate ai_agent_lab
+   PS> cd C:\Users\Jberr\_Projects\AI_agent_lab
+
+Smoke test (Ollama connectivity only):
+
+   PS> python src\experiments\01-ollama-chat\weather_check.py
+
+Finance agent (Ollama + yfinance MCP tools):
+
+   PS> python -m src.agents.finance_agent
+
+Both scripts use OLLAMA_HOST = http://localhost:11434 and model llama3.2:latest.
+No code changes are needed as long as Ollama is running in WSL.
+
+
+Recommended two-terminal workflow
+---------------------------------
+Terminal 1 (WSL — keep open):
+   PS> wsl -d Ubuntu -u jberry
+   $ ollama serve
+
+Terminal 2 (Windows — run project code):
+   PS> conda activate ai_agent_lab
+   PS> cd C:\Users\Jberr\_Projects\AI_agent_lab
+   PS> curl.exe http://localhost:11434/api/tags
+   PS> python -m src.agents.finance_agent
+
+
+Troubleshooting
+---------------
+Problem: curl.exe http://localhost:11434/api/tags fails from PowerShell
+  - Ubuntu is probably stopped. Run: PS> wsl -d Ubuntu -u jberry
+  - Start Ollama: $ ollama serve
+  - Check distro state: PS> wsl --list --verbose
+
+Problem: Python error "Server disconnected without sending a response"
+  - Same as above — Ollama is not running or WSL exited.
+  - Verify with curl.exe before running Python.
+
+Problem: ollama stopped after I typed exit in WSL
+  - If you ran "ollama serve" in that terminal, exiting kills the server.
+  - Use a dedicated WSL terminal for ollama serve, or set up systemd (Option C).
+
+Problem: Model not found
+  - Inside WSL: $ ollama pull llama3.2
+  - Confirm: $ ollama list
+
+Problem: Script runs but is very slow
+  - Normal for local CPU inference on a laptop (tens of seconds per reply).
+  - First request after idle may be slower while the model loads.

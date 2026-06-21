@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_ollama import ChatOllama
 
 ################################################################################
@@ -227,19 +227,50 @@ def prompt_session_username() -> str:
 
 
 ################################################################################
+#*************************** Conversation history ******************************
+################################################################################
+
+def create_conversation_history() -> list:
+    """Return an empty message list for within-session agent memory."""
+    return []
+
+
+def extend_conversation_history(conversation_messages: list, result: dict) -> None:
+    """Replace the in-session history with the agent's returned message list."""
+    result_messages = result.get("messages", [])
+    if not result_messages:
+        return
+    conversation_messages.clear()
+    conversation_messages.extend(result_messages)
+
+
+################################################################################
 #*************************** Agent interaction loop ****************************
 ################################################################################
 
-async def run_prompt(agent, user_prompt: str, log_label: str = "AGENT") -> str:
-    """Send one user message to an agent, log the turn, and return the reply."""
+async def run_prompt_with_history(
+    agent,
+    user_prompt: str,
+    conversation_messages: list,
+    log_label: str = "AGENT",
+) -> str:
+    """Send a user message with prior turns and update session history."""
     log_user_message(user_prompt)
-    result = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": user_prompt}]}
-    )
+    conversation_messages.append(HumanMessage(content=user_prompt))
+    result = await agent.ainvoke({"messages": conversation_messages})
+    extend_conversation_history(conversation_messages, result)
     log_agent_result(result, log_label)
     reply = extract_reply(result)
     log_agent_reply(reply, log_label)
     return reply
+
+
+async def run_prompt(agent, user_prompt: str, log_label: str = "AGENT") -> str:
+    """Send one stateless user message to an agent, log the turn, and return."""
+    conversation_messages = create_conversation_history()
+    return await run_prompt_with_history(
+        agent, user_prompt, conversation_messages, log_label
+    )
 
 
 async def interactive_loop(
@@ -249,6 +280,7 @@ async def interactive_loop(
 ) -> None:
     """Run a REPL chat loop until the user types quit or exit."""
     log_path = start_session_log(session_name)
+    conversation_messages = create_conversation_history()
     print(welcome_message)
     print(f"Session log: {log_path}")
     print("Type 'quit' or 'exit' to stop.\n")
@@ -261,5 +293,10 @@ async def interactive_loop(
             append_session_log("=== SESSION END ===")
             break
 
-        reply = await run_prompt(agent, user_prompt, log_label=session_name.upper())
+        reply = await run_prompt_with_history(
+            agent,
+            user_prompt,
+            conversation_messages,
+            log_label=session_name.upper(),
+        )
         print(f"\nAgent: {reply}\n")

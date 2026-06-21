@@ -25,10 +25,19 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.agents.agent_utils import (
     append_session_log,
+    create_conversation_history,
     get_active_session_log,
     start_session_log,
 )
-from src.agents.coordinator_agent import build_cached_subagents, run_coordinator_turn
+from src.agents.coordinator_agent import (
+    build_coordinator_session,
+    run_coordinator_turn,
+)
+from src.data_retrieval.memory_client import (
+    MEMORY_STORE_PATH_ENV,
+    MEMORY_USER_ENV,
+    initialize_memory_store,
+)
 
 LOGS_DIR = PROJECT_ROOT / "logs"
 SESSION_NAME = "test_coordinator_delegation"
@@ -333,10 +342,15 @@ def build_report_header(session_log_path: Path) -> str:
     )
 
 
-async def run_scenario(cached_subagents: dict, scenario: dict) -> dict:
+async def run_scenario(session: dict, scenario: dict) -> dict:
     execution_error = None
+    conversation_messages = create_conversation_history()
     try:
-        await run_coordinator_turn(cached_subagents, scenario["prompt"])
+        await run_coordinator_turn(
+            session,
+            scenario["prompt"],
+            conversation_messages,
+        )
     except Exception as exc:
         execution_error = str(exc)
         append_session_log(f"[TEST ERROR] {scenario['name']}: {execution_error}")
@@ -350,7 +364,19 @@ async def run_scenario(cached_subagents: dict, scenario: dict) -> dict:
 async def run_all_scenarios() -> tuple[list[dict], Path, Path]:
     project_root = get_project_root()
     session_log_path = start_session_log(SESSION_NAME)
-    cached_subagents = await build_cached_subagents(project_root)
+    username = "alice"
+    memory_store_path = initialize_memory_store(
+        username,
+        LOGS_DIR / f"{SESSION_NAME}_memory.json",
+    )
+    os.environ[MEMORY_STORE_PATH_ENV] = str(memory_store_path)
+    os.environ[MEMORY_USER_ENV] = username
+    session = await build_coordinator_session(
+        project_root,
+        username,
+        session_log_path,
+        memory_store_path,
+    )
 
     results = []
     for scenario in TEST_SCENARIOS:
@@ -364,7 +390,7 @@ async def run_all_scenarios() -> tuple[list[dict], Path, Path]:
             continue
 
         append_session_log(f"=== TEST SCENARIO: {scenario['name']} ===")
-        results.append(await run_scenario(cached_subagents, scenario))
+        results.append(await run_scenario(session, scenario))
 
     append_session_log("=== SESSION END ===")
 

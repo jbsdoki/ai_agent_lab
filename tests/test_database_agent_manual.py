@@ -24,11 +24,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.agents.agent_utils import SESSION_LOG_PATH_ENV
-from src.agents.database_agent import build_database_mcp_config
+from src.agents.database_agent import build_database_mcp_config, build_mcp_client
 from src.data_retrieval.database_client import (
     GRANT_STORE_PATH_ENV,
     SESSION_USER_ENV,
     create_grant_store_path,
+)
+from src.data_retrieval.memory_client import (
+    MEMORY_STORE_PATH_ENV,
+    MEMORY_USER_ENV,
+    initialize_memory_store,
 )
 
 LOGS_DIR = PROJECT_ROOT / "logs"
@@ -80,6 +85,28 @@ def test_prompt_session_username_accepts_known_user() -> None:
     with patch("builtins.input", side_effect=["unknown", "carol"]):
         username = prompt_session_username()
     assert username == "carol"
+
+
+async def test_database_mcp_client_registers_memory_tools() -> None:
+    log_path = LOGS_DIR / "test_database_mcp_tools.logs"
+    grant_path = LOGS_DIR / "test_database_mcp_tools.grants.json"
+    grant_path.write_text("{}", encoding="utf-8")
+    memory_path = initialize_memory_store(
+        "carol",
+        LOGS_DIR / "test_database_mcp_tools.memory.json",
+    )
+    client = build_mcp_client(
+        get_project_root(),
+        "carol",
+        log_path,
+        grant_path,
+        memory_path,
+    )
+    tool_names = {tool.name for tool in await client.get_tools()}
+    assert "list_accessible_files" in tool_names
+    assert "read_classified_file" in tool_names
+    assert "save_memory" in tool_names
+    assert "search_memories" in tool_names
 
 
 def find_access_lines(log_text: str) -> list[str]:
@@ -185,6 +212,14 @@ def run_automated_tests() -> tuple[list[str], list[str]]:
             passed.append(name)
         except Exception as exc:
             failed.append(f"{name}: {exc}")
+
+    async_name = "test_database_mcp_client_registers_memory_tools"
+    try:
+        asyncio.run(test_database_mcp_client_registers_memory_tools())
+        passed.append(async_name)
+    except Exception as exc:
+        failed.append(f"{async_name}: {exc}")
+
     return passed, failed
 
 
@@ -193,33 +228,43 @@ async def run_live_scenario(scenario: dict) -> dict:
 
     from src.agents.agent_utils import (
         append_session_log,
+        create_conversation_history,
         get_active_session_log,
         start_session_log,
     )
-    from src.agents.database_agent import build_database_agent, run_prompt_with_approvals
+    from src.agents.database_agent import build_database_session, run_prompt_with_approvals
 
     session_name = f"test_database_agent_{scenario['user']}"
     log_path = start_session_log(session_name)
     grant_store_path = create_grant_store_path(log_path)
     grant_store_path.write_text("{}", encoding="utf-8")
+    memory_store_path = initialize_memory_store(
+        scenario["user"],
+        LOGS_DIR / f"{session_name}.memory.json",
+    )
     os.environ[GRANT_STORE_PATH_ENV] = str(grant_store_path)
+    os.environ[MEMORY_STORE_PATH_ENV] = str(memory_store_path)
+    os.environ[MEMORY_USER_ENV] = scenario["user"]
     append_session_log(f"=== MANUAL SCENARIO: {scenario['user']} ===")
 
-    agent = await build_database_agent(
+    session = await build_database_session(
         get_project_root(),
         scenario["user"],
         log_path,
         grant_store_path,
+        memory_store_path,
     )
     approval_count = len(scenario.get("expect_grants", []))
     approval_inputs = ["y"] * max(approval_count, 1)
+    conversation_messages = create_conversation_history()
     with patch("builtins.input", side_effect=approval_inputs):
         for prompt in scenario["prompts"]:
             append_session_log(f"=== PROMPT: {prompt!r} ===")
             await run_prompt_with_approvals(
-                agent,
+                session["agent"],
                 prompt,
                 scenario["user"],
+                conversation_messages,
                 log_label="DATABASE_AGENT",
             )
 

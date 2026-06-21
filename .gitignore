@@ -16,3 +16,7 @@ blueprint.md
 #Test output logs
 logs/*.logs
 logs/*.grants.json
+logs/*.memory.json
+
+#User memory stores
+data/memory/*.json
