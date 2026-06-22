@@ -1,8 +1,9 @@
-"""Coordinator agent with finance, news, web, and SEC subagents.
+"""Coordinator agent with finance, news, web, SEC, and RAG subagents.
 
 The coordinator uses intent routing to enable only relevant subagents each turn.
 Single-intent prompts dispatch directly to one specialist without a coordinator LLM call.
 Memory MCP tools are available on direct dispatch and multi-subagent coordinator turns.
+RAG dispatch uses document search tools only (no memory tools).
 """
 
 import asyncio
@@ -29,6 +30,7 @@ from src.agents.agent_utils import (
 from src.agents.intent_router import (
     FINANCE_SUBAGENT,
     NEWS_SUBAGENT,
+    RAG_SUBAGENT,
     SEC_SUBAGENT,
     WEB_SUBAGENT,
     detect_subagent_intents,
@@ -41,6 +43,7 @@ from src.data_retrieval.memory_client import (
     build_memory_recall_prompt,
     initialize_memory_store,
 )
+from src.data_retrieval.rag_client import CHROMA_PERSIST_DIR_ENV
 
 SUBAGENT_DESCRIPTIONS = {
     FINANCE_SUBAGENT: (
@@ -54,6 +57,9 @@ SUBAGENT_DESCRIPTIONS = {
     ),
     SEC_SUBAGENT: (
         "Ask the SEC specialist about EDGAR filings such as 10-K, 10-Q, and 8-K."
+    ),
+    RAG_SUBAGENT: (
+        "Ask the document search specialist to find passages in the standard-safe corpus."
     ),
 }
 
@@ -72,6 +78,12 @@ SUBAGENT_SYSTEM_PROMPTS = {
     SEC_SUBAGENT: (
         "You are an SEC filings specialist. Use SEC tools for 10-K, 10-Q, and 8-K "
         "questions. Do not guess filing dates or accession numbers."
+    ),
+    RAG_SUBAGENT: (
+        "You are a document search specialist for the standard-safe corpus. "
+        "Use search_documents for passage lookups. Cite source_path from results. "
+        "Do not invent passages. Classified secret and top_secret files are not "
+        "in this index; direct users to the database agent for classified reads."
     ),
 }
 
@@ -119,6 +131,26 @@ def build_sec_mcp_config(project_root, python_executable: str) -> dict:
         "command": python_executable,
         "args": ["-m", "src.mcp_servers.sec_server"],
         "cwd": str(project_root),
+    }
+
+
+def build_rag_mcp_config(
+    project_root,
+    python_executable: str,
+    session_log_path,
+    chroma_persist_path,
+) -> dict:
+    """Return MCP settings for the RAG server subprocess."""
+    return {
+        "transport": "stdio",
+        "command": python_executable,
+        "args": ["-m", "src.mcp_servers.rag_server"],
+        "cwd": str(project_root),
+        "env": {
+            **os.environ,
+            CHROMA_PERSIST_DIR_ENV: str(chroma_persist_path),
+            SESSION_LOG_PATH_ENV: str(session_log_path),
+        },
     }
 
 
@@ -219,6 +251,16 @@ def build_sec_subagent(tools, recall_prompt: str = ""):
     )
 
 
+def build_rag_subagent(tools):
+    llm = build_llm()
+    return create_agent(
+        model=llm,
+        tools=tools,
+        name="rag_subagent",
+        system_prompt=SUBAGENT_SYSTEM_PROMPTS[RAG_SUBAGENT],
+    )
+
+
 async def load_finance_mcp_tools(project_root) -> list:
     client = MultiServerMCPClient(
         {"yfinance": build_yfinance_mcp_config(project_root, sys.executable)}
@@ -243,6 +285,24 @@ async def load_web_mcp_tools(project_root) -> list:
 async def load_sec_mcp_tools(project_root) -> list:
     client = MultiServerMCPClient(
         {"sec": build_sec_mcp_config(project_root, sys.executable)}
+    )
+    return await client.get_tools()
+
+
+async def load_rag_mcp_tools(
+    project_root,
+    session_log_path,
+    chroma_persist_path,
+) -> list:
+    client = MultiServerMCPClient(
+        {
+            "rag": build_rag_mcp_config(
+                project_root,
+                sys.executable,
+                session_log_path,
+                chroma_persist_path,
+            )
+        }
     )
     return await client.get_tools()
 
@@ -338,32 +398,47 @@ def select_turn_subagents(
     return ordered_names, agents, tools
 
 
-async def build_cached_subagents(project_root, recall_prompt: str = "") -> dict:
+async def build_cached_subagents(
+    project_root,
+    session_log_path,
+    chroma_persist_path,
+    recall_prompt: str = "",
+) -> dict:
     """Build all specialist agents once and wrap them as coordinator tools."""
     finance_tools = await load_finance_mcp_tools(project_root)
     news_tools = await load_news_mcp_tools(project_root)
     web_tools = await load_web_mcp_tools(project_root)
     sec_tools = await load_sec_mcp_tools(project_root)
+    rag_tools = await load_rag_mcp_tools(
+        project_root,
+        session_log_path,
+        chroma_persist_path,
+    )
 
     agent_specs = {
-        FINANCE_SUBAGENT: finance_tools,
-        NEWS_SUBAGENT: news_tools,
-        WEB_SUBAGENT: web_tools,
-        SEC_SUBAGENT: sec_tools,
+        FINANCE_SUBAGENT: (finance_tools, True),
+        NEWS_SUBAGENT: (news_tools, True),
+        WEB_SUBAGENT: (web_tools, True),
+        SEC_SUBAGENT: (sec_tools, True),
+        RAG_SUBAGENT: (rag_tools, False),
     }
 
     cached = {}
-    for name, mcp_tools in agent_specs.items():
-        agent = build_direct_dispatch_agent(
-            name,
-            mcp_tools,
-            memory_tools=[],
-            recall_prompt=recall_prompt,
-        )
+    for name, (mcp_tools, uses_memory) in agent_specs.items():
+        if uses_memory:
+            agent = build_direct_dispatch_agent(
+                name,
+                mcp_tools,
+                memory_tools=[],
+                recall_prompt=recall_prompt,
+            )
+        else:
+            agent = build_rag_subagent(mcp_tools)
         cached[name] = {
             "agent": agent,
             "tool": build_subagent_tool(agent, name, SUBAGENT_DESCRIPTIONS[name]),
             "mcp_tools": mcp_tools,
+            "uses_memory": uses_memory,
             "system_prompt": SUBAGENT_SYSTEM_PROMPTS[name],
         }
     return cached
@@ -376,17 +451,25 @@ async def build_coordinator_session(
     memory_store_path,
 ) -> dict:
     recall_prompt = build_memory_recall_prompt(username)
+    chroma_persist_path = project_root / "data" / "chroma"
+    os.environ.setdefault(CHROMA_PERSIST_DIR_ENV, str(chroma_persist_path))
     memory_tools = await build_memory_tools(
         project_root,
         username,
         session_log_path,
         memory_store_path,
     )
-    cached_subagents = await build_cached_subagents(project_root, recall_prompt)
+    cached_subagents = await build_cached_subagents(
+        project_root,
+        session_log_path,
+        chroma_persist_path,
+        recall_prompt,
+    )
     return {
         "username": username,
         "log_path": session_log_path,
         "memory_store_path": memory_store_path,
+        "chroma_persist_path": chroma_persist_path,
         "memory_tools": memory_tools,
         "recall_prompt": recall_prompt,
         "cached_subagents": cached_subagents,
@@ -410,12 +493,16 @@ async def run_coordinator_turn(
 
     if len(tools) == 1:
         subagent_name = ordered_names[0]
-        agent = build_direct_dispatch_agent(
-            subagent_name,
-            cached_subagents[subagent_name]["mcp_tools"],
-            session["memory_tools"],
-            session["recall_prompt"],
-        )
+        subagent_entry = cached_subagents[subagent_name]
+        if subagent_entry.get("uses_memory", True):
+            agent = build_direct_dispatch_agent(
+                subagent_name,
+                subagent_entry["mcp_tools"],
+                session["memory_tools"],
+                session["recall_prompt"],
+            )
+        else:
+            agent = build_rag_subagent(subagent_entry["mcp_tools"])
         return await run_prompt_with_history(
             agent,
             user_prompt,
@@ -498,7 +585,8 @@ async def main() -> None:
     )
     await interactive_coordinator_loop(
         session,
-        "Coordinator ready. Ask about stocks, news, SEC filings, or allowlisted web pages.",
+        "Coordinator ready. Ask about stocks, news, SEC filings, allowlisted web pages, "
+        "or document search in the standard corpus (run ingest_rag_corpus first).",
         session_name="coordinator_agent",
     )
 

@@ -1,0 +1,24 @@
+{
+  "documents": {
+    "README.md": {
+      "hash": "e1d71746e3a7183b9cac74603d8da6266871d7ad708dd139aab58c84c186ecfd",
+      "classification": "standard",
+      "chunk_count": 34
+    },
+    "database/standard/public_briefing.txt": {
+      "hash": "08ad954943cf5282293f0083c66511a751b218b85f6957a6da4c240a9286fe2f",
+      "classification": "standard",
+      "chunk_count": 1
+    },
+    "database/standard/rag_corpus/sample_faq.md": {
+      "hash": "fba2abdb34823810410fbd490dc9f9e8a0b337ca825c8fa78d28fcc857a84793",
+      "classification": "standard",
+      "chunk_count": 1
+    },
+    "database/standard/rag_corpus/sample_policy.txt": {
+      "hash": "62e9bcc808b76190bf0d843734c0878a7b9335f4aa6f9394c857cd2e9da20881",
+      "classification": "standard",
+      "chunk_count": 1
+    }
+  }
+}

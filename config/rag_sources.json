@@ -1,0 +1,14 @@
+{
+  "sources": [
+    { "path": "README.md", "classification": "standard" },
+    {
+      "path": "database/standard",
+      "glob": "**/*.{txt,md}",
+      "classification": "standard"
+    }
+  ],
+  "forbidden_path_prefixes": [
+    "database/secret/",
+    "database/top_secret/"
+  ]
+}

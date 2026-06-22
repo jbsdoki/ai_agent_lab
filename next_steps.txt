@@ -33,19 +33,6 @@ Keep the deterministic router as a fallback or safety gate.
 - Your current router: src/agents/intent_router.py
 
 
-Create a vector database
-------------------------
-Add retrieval-augmented generation (RAG) so agents can search embedded documents 
-instead of only reading whole files. Ingest markdown or text from `database/`, `README.md`, 
-or SEC filing snippets into a local vector store (Chroma or FAISS are easy starts), expose 
-a `search_documents` MCP tool, and wire a small RAG subagent. Useful 
-for “find passages about X” without loading entire files into context.
-
-- LangChain vector stores: https://python.langchain.com/docs/integrations/vectorstores/
-- Chroma getting started: https://docs.trychroma.com/getting-started
-- LlamaIndex basics: https://docs.llamaindex.ai/en/stable/getting_started/
-- LangChain RAG tutorial: https://python.langchain.com/docs/tutorials/rag/
-
 
 OTHER IDEAS WORTH TRYING
 ------------------------

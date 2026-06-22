@@ -1,0 +1,10 @@
+CLASSIFICATION: STANDARD
+
+Internal policy excerpt for RAG testing (standard clearance only).
+
+KEYWORD: RAG-POLICY-ALPHA
+DOC-ID: STD-RAG-001
+REVIEW-CYCLE: 90
+
+Remote work is permitted up to three days per week with manager approval.
+All standard briefing materials must cite DOC-ID in status reports.

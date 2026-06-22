@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_ollama import ChatOllama
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 
 ################################################################################
 #*************************** Shared configuration ******************************
@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOGS_DIR = PROJECT_ROOT / "logs"
 OLLAMA_HOST = "http://localhost:11434"
 MODEL = "llama3.2:latest"
+EMBED_MODEL = "nomic-embed-text:latest"
 
 # Points at the current session log file so any code can append to one log.
 _active_session_log: Path | None = None
@@ -104,6 +105,14 @@ def log_api_request(provider: str, action: str, params: dict) -> None:
 def build_llm(model: str = MODEL, base_url: str = OLLAMA_HOST) -> ChatOllama:
     """Create a ChatOllama instance pointed at the local Ollama server."""
     return ChatOllama(model=model, base_url=base_url, temperature=0)
+
+
+def build_embeddings(
+    model: str = EMBED_MODEL,
+    base_url: str = OLLAMA_HOST,
+) -> OllamaEmbeddings:
+    """Create an OllamaEmbeddings instance for vector indexing and search."""
+    return OllamaEmbeddings(model=model, base_url=base_url)
 
 
 def extract_reply(result: dict) -> str:

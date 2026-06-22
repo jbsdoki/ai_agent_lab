@@ -11,6 +11,7 @@ NEWS_SUBAGENT = "news_subagent"
 WEB_SUBAGENT = "web_subagent"
 SEC_SUBAGENT = "sec_subagent"
 FILES_SUBAGENT = "files_subagent"
+RAG_SUBAGENT = "rag_subagent"
 
 URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 
@@ -35,8 +36,14 @@ WEB_KEYWORDS = (
 )
 
 FILES_KEYWORDS = (
-    "readme", "sandbox", "local file", "local files", "repository file",
-    "repo file", "in this repo", "in the repo", "src/", ".md", ".txt",
+    "sandbox", "local file", "local files", "repository file",
+    "repo file", "in this repo", "in the repo", "src/",
+)
+
+RAG_KEYWORDS = (
+    "search documents", "find passage", "find passages", "semantic search",
+    "what does the readme", "in the documentation", "vector search",
+    "search the docs", "search the corpus", "search the project docs",
 )
 
 DEFAULT_SUBAGENTS = {FINANCE_SUBAGENT, NEWS_SUBAGENT}
@@ -75,6 +82,10 @@ def matches_files_intent(prompt: str) -> bool:
     return match_keywords(prompt, FILES_KEYWORDS)
 
 
+def matches_rag_intent(prompt: str) -> bool:
+    return match_keywords(prompt, RAG_KEYWORDS)
+
+
 def get_default_subagents() -> set[str]:
     return set(DEFAULT_SUBAGENTS)
 
@@ -90,6 +101,8 @@ def detect_subagent_intents(prompt: str) -> set[str]:
         intents.add(SEC_SUBAGENT)
     if matches_web_intent(prompt):
         intents.add(WEB_SUBAGENT)
+    if matches_rag_intent(prompt):
+        intents.add(RAG_SUBAGENT)
     if matches_files_intent(prompt):
         intents.add(FILES_SUBAGENT)
 

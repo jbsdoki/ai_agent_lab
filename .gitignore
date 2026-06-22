@@ -20,3 +20,6 @@ logs/*.memory.json
 
 #User memory stores
 data/memory/*.json
+
+#Local Chroma vector index
+data/chroma/

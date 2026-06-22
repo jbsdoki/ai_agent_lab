@@ -15,6 +15,7 @@ from src.agents.intent_router import (
     FILES_SUBAGENT,
     FINANCE_SUBAGENT,
     NEWS_SUBAGENT,
+    RAG_SUBAGENT,
     SEC_SUBAGENT,
     WEB_SUBAGENT,
     contains_url,
@@ -63,6 +64,14 @@ def test_web_intent_from_keywords() -> None:
 
 def test_files_intent() -> None:
     assert_intents("Show me the readme in this repo", {FILES_SUBAGENT})
+
+
+def test_rag_intent() -> None:
+    assert_intents(
+        "Find passages about ORION in the project docs",
+        {RAG_SUBAGENT},
+    )
+    assert_intents("Semantic search the documentation for MCP", {RAG_SUBAGENT})
 
 
 def test_default_when_no_match() -> None:
@@ -133,6 +142,7 @@ def run_all_tests() -> tuple[list[str], list[str]]:
         test_web_intent_from_url,
         test_web_intent_from_keywords,
         test_files_intent,
+        test_rag_intent,
         test_default_when_no_match,
         test_aapl_price_does_not_enable_sec_or_web,
         test_combined_intents,
