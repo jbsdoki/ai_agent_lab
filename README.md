@@ -25,7 +25,7 @@ You can run six entry points:
 - **Web agent** — standalone allowlisted page fetch and summarize assistant
 - **Database agent** — standalone classified file assistant with session login and clearance enforcement
 
-Each agent session writes a timestamped log to `logs/` with user prompts, `[ROUTER]` decisions (coordinator), `[ACCESS]` decisions (database), tool calls, API requests, and replies.
+Each agent session writes a timestamped log to `logs/` with user prompts, `[ROUTER]` decisions (coordinator), `[ACCESS]` decisions (database), tool calls, API requests, and replies. Optional local tracing (`LOCAL_TRACING=true` in `.env`) also writes structured JSONL trace files (`logs/<session>.trace.jsonl`) with LLM/tool latency; see [docs/local_tracing_plan.md](docs/local_tracing_plan.md).
 
 ## Architecture
 
@@ -88,6 +88,7 @@ Copy `.env.example` to `.env` and set:
 NEWSAPI_API_KEY=your_newsapi_key_here
 SEC_USER_AGENT=AI_Agent_Lab/1.0 (your.email@example.com)
 WEB_ALLOWED_DOMAINS=sec.gov,apple.com,techcrunch.com,news.ycombinator.com
+LOCAL_TRACING=false
 ```
 
 ## Setup
@@ -156,7 +157,7 @@ Example prompts (other agents):
 - SEC: *"Show recent 10-Q filings for MSFT"*
 - Web: *"Fetch https://techcrunch.com and summarize the page text"*
 
-Type `quit` or `exit` to end a session. Logs are written to `logs/<session_name>_<timestamp>.logs`. Coordinator logs include lines like `[ROUTER] enabled_subagents=['finance_subagent']`.
+Type `quit` or `exit` to end a session. Logs are written to `logs/<session_name>_<timestamp>.logs`. With `LOCAL_TRACING=true`, a sibling `logs/<session_name>_<timestamp>.trace.jsonl` records structured LLM and tool events. Coordinator logs include lines like `[ROUTER] enabled_subagents=['finance_subagent']`.
 
 ## Testing
 

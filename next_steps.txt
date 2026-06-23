@@ -44,11 +44,6 @@ read secret/project_notes.txt” route correctly — with clearance still enforc
 the LLM.
 - Coordinator wiring pattern: src/agents/coordinator_agent.py
 
-Add LangSmith (or local) tracing for tool calls
-See every LLM step, tool invocation, and latency in a trace UI. Helpful when debugging why an agent picked the wrong tool or looped.
-- LangSmith docs: https://docs.smith.langchain.com/
-- LangChain tracing: https://python.langchain.com/docs/how_to/debugging/
-
 Build a local chat UI with Open WebUI or Chainlit
 Run your Ollama-backed agents from a browser instead of the terminal REPL — better for demos and sharing with others on your network.
 - Open WebUI: https://docs.openwebui.com/

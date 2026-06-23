@@ -15,6 +15,7 @@ blueprint.md
 
 #Test output logs
 logs/*.logs
+logs/*.trace.jsonl
 logs/*.grants.json
 logs/*.memory.json
 

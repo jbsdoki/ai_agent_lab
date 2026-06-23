@@ -82,11 +82,17 @@ def append_session_log(line: str) -> None:
 
 def start_session_log(session_name: str) -> Path:
     """Create a new log file, mark it active, and write the session header."""
+    from src.agents.trace_utils import get_active_trace_path, start_trace_session
+
     log_path = create_session_log_path(session_name)
     set_active_session_log(log_path)
     os.environ[SESSION_LOG_PATH_ENV] = str(log_path)
+    start_trace_session(session_name, log_path)
     append_session_log(f"=== SESSION START: {session_name} ===")
     append_session_log(f"Timestamp (UTC): {utc_timestamp()}")
+    trace_path = get_active_trace_path()
+    if trace_path is not None:
+        append_session_log(f"Trace log: {trace_path}")
     return log_path
 
 
@@ -264,9 +270,12 @@ async def run_prompt_with_history(
     log_label: str = "AGENT",
 ) -> str:
     """Send a user message with prior turns and update session history."""
+    from src.agents.trace_utils import prepare_turn_invoke_config
+
     log_user_message(user_prompt)
     conversation_messages.append(HumanMessage(content=user_prompt))
-    result = await agent.ainvoke({"messages": conversation_messages})
+    config = prepare_turn_invoke_config()
+    result = await agent.ainvoke({"messages": conversation_messages}, config=config)
     extend_conversation_history(conversation_messages, result)
     log_agent_result(result, log_label)
     reply = extract_reply(result)
@@ -292,6 +301,11 @@ async def interactive_loop(
     conversation_messages = create_conversation_history()
     print(welcome_message)
     print(f"Session log: {log_path}")
+    from src.agents.trace_utils import get_active_trace_path
+
+    trace_path = get_active_trace_path()
+    if trace_path is not None:
+        print(f"Trace log: {trace_path}")
     print("Type 'quit' or 'exit' to stop.\n")
 
     while True:

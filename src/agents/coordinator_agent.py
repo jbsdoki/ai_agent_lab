@@ -311,14 +311,18 @@ def build_subagent_tool(agent, tool_name: str, description: str) -> StructuredTo
     """Wrap a subagent as a callable tool the coordinator can invoke."""
 
     async def invoke_subagent(query: str) -> str:
+        from src.agents.trace_utils import prepare_subagent_invoke_config
+
         if not is_subagent_enabled(query, tool_name):
             return (
                 f"{tool_name} is not enabled for this delegated query based on intent "
                 "routing. Rephrase the query or use another available specialist."
             )
 
+        config = prepare_subagent_invoke_config(tool_name)
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": query}]}
+            {"messages": [{"role": "user", "content": query}]},
+            config=config,
         )
         log_subagent_invocation(tool_name, query, result)
         return extract_reply(result)
@@ -549,6 +553,11 @@ async def interactive_coordinator_loop(
     conversation_messages = create_conversation_history()
     print(welcome_message)
     print(f"Session log: {log_path}")
+    from src.agents.trace_utils import get_active_trace_path
+
+    trace_path = get_active_trace_path()
+    if trace_path is not None:
+        print(f"Trace log: {trace_path}")
     print(f"Memory store: {session['memory_store_path']}")
     print("Type 'quit' or 'exit' to stop.\n")
 

@@ -226,13 +226,18 @@ async def run_prompt_with_approvals(
     conversation_messages: list,
     log_label: str = "AGENT",
 ) -> str:
+    from src.agents.trace_utils import begin_trace_turn, prepare_retry_invoke_config
+
     log_user_message(user_prompt)
     current_prompt = user_prompt
     result = None
+    begin_trace_turn()
+    retry_index = 0
 
     while True:
         conversation_messages.append(HumanMessage(content=current_prompt))
-        result = await agent.ainvoke({"messages": conversation_messages})
+        config = prepare_retry_invoke_config(retry_index)
+        result = await agent.ainvoke({"messages": conversation_messages}, config=config)
         extend_conversation_history(conversation_messages, result)
         log_agent_result(result, log_label)
         approval_requests = find_approval_requests(result.get("messages", []))
@@ -243,6 +248,7 @@ async def run_prompt_with_approvals(
             approval_requests, username
         )
         current_prompt = build_follow_up_prompt(granted_paths, denied_paths)
+        retry_index += 1
 
     reply = extract_reply(result)
     log_agent_reply(reply, log_label)
@@ -257,6 +263,11 @@ async def database_interactive_loop(
     log_path = session["log_path"]
     print(welcome_message)
     print(f"Session log: {log_path}")
+    from src.agents.trace_utils import get_active_trace_path
+
+    trace_path = get_active_trace_path()
+    if trace_path is not None:
+        print(f"Trace log: {trace_path}")
     print(f"Memory store: {session['memory_store_path']}")
     print("Type 'quit' or 'exit' to stop.\n")
 

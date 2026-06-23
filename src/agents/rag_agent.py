@@ -58,6 +58,11 @@ async def rag_interactive_loop(agent, welcome_message: str, log_path) -> None:
     conversation_messages = create_conversation_history()
     print(welcome_message)
     print(f"Session log: {log_path}")
+    from src.agents.trace_utils import get_active_trace_path
+
+    trace_path = get_active_trace_path()
+    if trace_path is not None:
+        print(f"Trace log: {trace_path}")
     print("Type 'quit' or 'exit' to stop.\n")
 
     while True:
